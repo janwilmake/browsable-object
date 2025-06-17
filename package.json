@@ -1,0 +1,22 @@
+{
+  "name": "browsable-object",
+  "version": "0.1.3",
+  "main": "./browsable.ts",
+  "files": [
+    "./browsable.ts"
+  ],
+  "description": "A browsable SQL query interface for Cloudflare Durable Objects that supports readonly validation",
+  "keywords": [
+    "cloudflare",
+    "durable-objects",
+    "browser"
+  ],
+  "author": "Outerbase",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250303.0"
+  },
+  "dependencies": {
+    "sql-parser-cst": "^0.33.1"
+  }
+}
