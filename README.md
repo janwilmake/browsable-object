@@ -2,7 +2,7 @@
 
 Forked from [@outerbase/browsable-durable-object](https://github.com/outerbase/browsable-durable-object) to add some functionality
 
-A decorator, inheritance mechanism, and handler for making Cloudflare Durable Objects browsable and queryable via SQL, with support for read-only validation.
+A decorator, inheritance mechanism, and handler for making Cloudflare Durable Objects browsable and queryable via SQL, with support for custom query validation.
 
 ## Installation
 
@@ -14,19 +14,19 @@ npm install browsable-object
 
 - **SQL Query Interface**: Easily query your Durable Object's SQLite database
 - **Multiple Implementation Options**: Use via decorator, inheritance, or composition
-- **Read-Only Mode**: Validate queries to ensure they are read-only operations
+- **Custom Query Validation**: Provide your own validator function to control which queries are allowed
 - **Studio UI**: Built-in database browser interface
 - **CORS Support**: Configurable cross-origin resource sharing
 
 ## Usage
 
-Here are various ways to implement the browsable experience, with examples of using the read-only option.
+Here are various ways to implement the browsable experience, with examples of using custom validation.
 
 ### Class Decorator
 
 ```typescript
 import { DurableObject } from "cloudflare:workers";
-import { Browsable } from "@outerbase/browsable-durable-object";
+import { Browsable, QueryValidator } from "browsable-object";
 
 // Standard implementation
 @Browsable()
@@ -43,8 +43,21 @@ export class MyDurableObject extends DurableObject<Env> {
   }
 }
 
-// Read-only implementation
-@Browsable({ readonly: true })
+// Read-only implementation with custom validator
+const readOnlyValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+
+  if (upperSql.startsWith("SELECT") || upperSql.startsWith("WITH")) {
+    return { isValid: true };
+  }
+
+  return {
+    isValid: false,
+    error: "Only SELECT and WITH queries are allowed",
+  };
+};
+
+@Browsable({ validator: readOnlyValidator })
 export class MyReadOnlyDurableObject extends DurableObject<Env> {
   public sql: SqlStorage;
 
@@ -76,6 +89,8 @@ export default {
 ### Inheritance
 
 ```typescript
+import { BrowsableDurableObject, QueryValidator } from "browsable-object";
+
 // Standard implementation
 export class MyDurableObject extends BrowsableDurableObject<Env> {
   public sql: SqlStorage;
@@ -96,13 +111,36 @@ export class MyDurableObject extends BrowsableDurableObject<Env> {
   }
 }
 
-// Read-only implementation
+// Read-only implementation with custom validator
+const readOnlyValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+  const forbiddenKeywords = [
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "CREATE",
+    "ALTER",
+  ];
+
+  for (const keyword of forbiddenKeywords) {
+    if (upperSql.includes(keyword)) {
+      return {
+        isValid: false,
+        error: `${keyword} operations are not allowed`,
+      };
+    }
+  }
+
+  return { isValid: true };
+};
+
 export class MyReadOnlyDurableObject extends BrowsableDurableObject<Env> {
   public sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {
-    // Pass readonly option to the parent class
-    super(ctx, env, { readonly: true });
+    // Pass validator option to the parent class
+    super(ctx, env, { validator: readOnlyValidator });
     this.sql = ctx.storage.sql;
   }
 
@@ -121,6 +159,8 @@ export class MyReadOnlyDurableObject extends BrowsableDurableObject<Env> {
 ### Composition
 
 ```typescript
+import { BrowsableHandler, QueryValidator } from "browsable-object";
+
 // Standard implementation
 export class MyDurableObject extends DurableObject<Env> {
   public sql: SqlStorage;
@@ -143,7 +183,32 @@ export class MyDurableObject extends DurableObject<Env> {
   }
 }
 
-// Read-only implementation
+// Read-only implementation with custom validator
+const strictValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+
+  // Only allow specific SELECT patterns
+  if (!upperSql.startsWith("SELECT")) {
+    return {
+      isValid: false,
+      error: "Only SELECT queries are allowed",
+    };
+  }
+
+  // Check for dangerous functions
+  const dangerousPatterns = ["PRAGMA", "ATTACH", "DETACH"];
+  for (const pattern of dangerousPatterns) {
+    if (upperSql.includes(pattern)) {
+      return {
+        isValid: false,
+        error: `${pattern} is not allowed`,
+      };
+    }
+  }
+
+  return { isValid: true };
+};
+
 export class MyReadOnlyDurableObject extends DurableObject<Env> {
   public sql: SqlStorage;
   private handler: BrowsableHandler;
@@ -151,8 +216,10 @@ export class MyReadOnlyDurableObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    // Initialize with readonly option
-    this.handler = new BrowsableHandler(this.sql, { readonly: true });
+    // Initialize with validator option
+    this.handler = new BrowsableHandler(this.sql, {
+      validator: strictValidator,
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -171,15 +238,48 @@ export class MyReadOnlyDurableObject extends DurableObject<Env> {
 
 ```typescript
 import { DurableObject } from "cloudflare:workers";
-import { Browsable, studio } from "@outerbase/browsable-durable-object";
+import { Browsable, studio, QueryValidator } from "browsable-object";
 
 // Standard implementation
 @Browsable()
-export class MyDurableObject extends DurableObject<Env> {}
+export class MyDurableObject extends DurableObject<Env> {
+  public sql: SqlStorage;
 
-// Read-only implementation
-@Browsable({ readonly: true })
-export class MyReadOnlyDurableObject extends DurableObject<Env> {}
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+  }
+}
+
+// Read-only implementation for Studio
+const studioValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+
+  // Allow SELECT, WITH, and EXPLAIN queries
+  const allowedStarters = ["SELECT", "WITH", "EXPLAIN"];
+  const isAllowed = allowedStarters.some((starter) =>
+    upperSql.startsWith(starter),
+  );
+
+  if (!isAllowed) {
+    return {
+      isValid: false,
+      error: "Only SELECT, WITH, and EXPLAIN queries are allowed in Studio",
+    };
+  }
+
+  return { isValid: true };
+};
+
+@Browsable({ validator: studioValidator })
+export class MyReadOnlyDurableObject extends DurableObject<Env> {
+  public sql: SqlStorage;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.sql = ctx.storage.sql;
+  }
+}
 
 export default {
   async fetch(request, env, ctx): Promise<Response> {
@@ -204,13 +304,24 @@ export default {
 
 ## API Reference
 
+### QueryValidator
+
+A function type that validates SQL queries:
+
+```typescript
+type QueryValidator = (sql: string) => {
+  isValid: boolean;
+  error?: string;
+};
+```
+
 ### BrowsableOptions
 
 Options that can be passed to the Browsable decorator, BrowsableDurableObject constructor, or BrowsableHandler constructor.
 
 ```typescript
 interface BrowsableOptions {
-  readonly?: boolean; // Enables SQL query validation to ensure read-only operations
+  validator?: QueryValidator; // Custom function to validate SQL queries
 }
 ```
 
@@ -222,27 +333,142 @@ Class decorator that adds browsable functionality to a Durable Object.
 
 Base class that can be extended to create a browsable Durable Object.
 
+```typescript
+constructor(
+  state: DurableObjectState,
+  env: TEnv,
+  options?: BrowsableOptions
+)
+```
+
 ### BrowsableHandler
 
-Handler class for processing SQL queries with optional read-only validation.
+Handler class for processing SQL queries with optional custom validation.
 
 ```typescript
-new BrowsableHandler(sql: SqlStorage, options?: BrowsableOptions)
+constructor(
+  sql: SqlStorage | undefined,
+  options?: BrowsableOptions
+)
 ```
 
 ### studio(request: Request, namespace: DurableObjectNamespace, options?)
 
 Creates a Studio UI interface for browsing your Durable Object data.
 
-## Read-Only Validation
+```typescript
+interface StudioOptions {
+  basicAuth?: {
+    username: string;
+    password: string;
+  };
+}
+```
 
-When the `readonly: true` option is provided, SQL queries are validated before execution to ensure they are read-only operations. The validation checks for:
+## Query Validation
 
-- No INSERT, UPDATE, DELETE statements
-- No CREATE, DROP, ALTER statements
-- No dangerous function calls like PRAGMA or load_extension
+You can provide a custom `QueryValidator` function to control which SQL queries are allowed. The validator receives the SQL string and returns an object indicating whether the query is valid and optionally an error message.
 
-If a query fails validation, an error response is returned with details about why the query was rejected.
+### Example Validators
+
+```typescript
+// Read-only validator
+const readOnlyValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+  const writeOperations = [
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "CREATE",
+    "DROP",
+    "ALTER",
+  ];
+
+  for (const op of writeOperations) {
+    if (upperSql.includes(op)) {
+      return { isValid: false, error: `${op} operations are not allowed` };
+    }
+  }
+
+  return { isValid: true };
+};
+
+// Table-specific validator
+const tableRestrictedValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+
+  if (upperSql.includes("SENSITIVE_TABLE")) {
+    return { isValid: false, error: "Access to sensitive_table is restricted" };
+  }
+
+  return { isValid: true };
+};
+
+// Complex validator with multiple rules
+const complexValidator: QueryValidator = (sql: string) => {
+  const upperSql = sql.trim().toUpperCase();
+
+  // Rule 1: Only allow SELECT and WITH
+  if (!upperSql.startsWith("SELECT") && !upperSql.startsWith("WITH")) {
+    return { isValid: false, error: "Only SELECT and WITH queries allowed" };
+  }
+
+  // Rule 2: No dangerous functions
+  const dangerousFunctions = ["LOAD_EXTENSION", "PRAGMA", "ATTACH"];
+  for (const func of dangerousFunctions) {
+    if (upperSql.includes(func)) {
+      return { isValid: false, error: `Function ${func} is not allowed` };
+    }
+  }
+
+  // Rule 3: Limit query complexity (example)
+  if (sql.length > 10000) {
+    return { isValid: false, error: "Query too long" };
+  }
+
+  return { isValid: true };
+};
+```
+
+## Endpoints
+
+When using any of the browsable implementations, the following endpoint is available:
+
+- `POST /query/raw` - Execute SQL queries with optional validation
+
+### Request Format
+
+```typescript
+// Single query
+{
+  "sql": "SELECT * FROM users",
+  "params": ["optional", "parameters"]
+}
+
+// Transaction (multiple queries)
+{
+  "transaction": [
+    { "sql": "SELECT * FROM users", "params": [] },
+    { "sql": "SELECT * FROM posts WHERE user_id = ?", "params": [1] }
+  ]
+}
+```
+
+### Response Format
+
+```typescript
+{
+  "result": {
+    "columns": ["id", "name", "email"],
+    "rows": [[1, "John", "john@example.com"]],
+    "meta": {
+      "rows_read": 1,
+      "rows_written": 0
+    }
+  },
+  "error": null
+}
+```
 
 ## License
 
