@@ -1,6 +1,6 @@
 {
   "name": "browsable-object",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "main": "./browsable.ts",
   "files": [
     "./browsable.ts"
@@ -15,8 +15,5 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250303.0"
-  },
-  "dependencies": {
-    "sql-parser-cst": "^0.33.1"
   }
 }
