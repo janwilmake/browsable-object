@@ -1,8 +1,4 @@
-// Modified browsable.ts with readonly option
-
 import { DurableObject } from "cloudflare:workers";
-// Import the SQL parser (add to dependencies)
-import { parse } from "sql-parser-cst";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,93 +38,24 @@ export function createResponse(
   });
 }
 
-// Add the validateReadOnlyQuery function from QueryFlare
-function validateReadOnlyQuery(sql: string): {
+// Validator function type
+export type QueryValidator = (sql: string) => {
   isValid: boolean;
   error?: string;
-} {
-  try {
-    const cst = parse(sql, {
-      dialect: "sqlite",
-    });
-
-    // Walk through the CST to check for non-read operations
-    let hasNonReadOperation = false;
-    let errorMessage = "";
-
-    function checkNode(node: any): void {
-      if (!node || typeof node !== "object") return;
-
-      // Check for dangerous statement types
-      if (
-        node.type === "insert_stmt" ||
-        node.type === "update_stmt" ||
-        node.type === "delete_stmt" ||
-        node.type === "create_table_stmt" ||
-        node.type === "drop_table_stmt" ||
-        node.type === "alter_table_stmt" ||
-        node.type === "create_index_stmt" ||
-        node.type === "drop_index_stmt"
-      ) {
-        hasNonReadOperation = true;
-        errorMessage = `Write operation not allowed: ${node.type}`;
-        return;
-      }
-
-      // Check for dangerous functions
-      if (node.type === "function_call" && node.name) {
-        const functionName = node.name.toLowerCase();
-        const dangerousFunctions = [
-          "load_extension",
-          "sqlite_compileoption_used",
-          "sqlite_compileoption_get",
-          "pragma",
-        ];
-
-        if (dangerousFunctions.includes(functionName)) {
-          hasNonReadOperation = true;
-          errorMessage = `Function not allowed: ${functionName}`;
-          return;
-        }
-      }
-
-      // Recursively check all properties
-      Object.values(node).forEach((value) => {
-        if (Array.isArray(value)) {
-          value.forEach(checkNode);
-        } else if (value && typeof value === "object") {
-          checkNode(value);
-        }
-      });
-    }
-
-    checkNode(cst);
-
-    if (hasNonReadOperation) {
-      return { isValid: false, error: errorMessage };
-    }
-
-    return { isValid: true };
-  } catch (error: any) {
-    return {
-      isValid: false,
-      error: `SQL parsing error: ${error.message}`,
-    };
-  }
-}
+};
 
 export interface BrowsableOptions {
-  readonly?: boolean;
+  validator?: QueryValidator;
 }
 
 export class BrowsableHandler {
   public sql: SqlStorage | undefined;
   private supportedRoutes = ["/query/raw"];
-  private readonly: boolean;
+  private validator?: QueryValidator;
 
   constructor(sql: SqlStorage | undefined, options?: BrowsableOptions) {
     this.sql = sql;
-    this.readonly = options?.readonly || false;
+    this.validator = options?.validator;
   }
 
   async fetch(request: Request) {
@@ -151,11 +78,11 @@ export class BrowsableHandler {
       if (path === "/query/raw" && request.method === "POST") {
         const { sql, params, transaction } = (await request.json()) as any;
 
-        // If readonly is enabled, validate the query or queries
-        if (this.readonly) {
+        // If validator is provided, validate the query or queries
+        if (this.validator) {
           if (transaction) {
             for (const query of transaction) {
-              const validation = validateReadOnlyQuery(query.sql);
+              const validation = this.validator(query.sql);
               if (!validation.isValid) {
                 return createResponse(
                   null,
@@ -165,7 +92,7 @@ export class BrowsableHandler {
               }
             }
           } else if (sql) {
-            const validation = validateReadOnlyQuery(sql);
+            const validation = this.validator(sql);
             if (!validation.isValid) {
               return createResponse(
                 null,
@@ -290,16 +217,16 @@ export function Browsable(options?: BrowsableOptions) {
         const storage = this.ctx.storage as DurableObjectStorage;
         const sql = storage.sql as SqlStorage;
 
-        // Validate query if readonly is enabled
-        if (this._browsableOptions?.readonly) {
+        // Validate query if validator is provided
+        if (this._browsableOptions?.validator) {
           if (cmd.type === "query") {
-            const validation = validateReadOnlyQuery(cmd.statement);
+            const validation = this._browsableOptions.validator(cmd.statement);
             if (!validation.isValid) {
               throw new Error(`Invalid query: ${validation.error}`);
             }
           } else if (cmd.type === "transaction") {
             for (const statement of cmd.statements) {
-              const validation = validateReadOnlyQuery(statement);
+              const validation = this._browsableOptions.validator(statement);
               if (!validation.isValid) {
                 throw new Error(`Invalid query: ${validation.error}`);
               }

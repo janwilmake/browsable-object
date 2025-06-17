@@ -1,6 +1,6 @@
 {
   "name": "browsable-object",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "main": "./browsable.ts",
   "files": [
     "./browsable.ts"
