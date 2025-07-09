@@ -214,7 +214,9 @@ async function executeStudioRequest(
     // you might need access to the storage object for transactionSync
     const results = [];
     for (const statement of cmd.statements) {
+      console.log("statement", statement);
       const result = await executeQueryForStudio(exec, statement);
+      console.log("statement", result);
       results.push(result);
     }
     return results;
@@ -298,11 +300,13 @@ export async function browsableRequest(
 
       if (body.type === "query" || body.type === "transaction") {
         try {
+          console.log("executing", body.type);
           const result = await executeStudioRequest(
             exec,
             body,
             options.validator,
           );
+          console.log("result", { result });
           return Response.json({ result });
         } catch (e) {
           if (e instanceof Error) {
@@ -448,12 +452,12 @@ export function Browsable(options?: BrowsableOptions) {
         }
 
         if (cmd.type === "query") {
-          return await executeQueryForStudio(sql, cmd.statement);
+          return await executeQueryForStudio(sql.exec, cmd.statement);
         } else if (cmd.type === "transaction") {
           const result = await storage.transaction(async () => {
             const results = [];
             for (const statement of cmd.statements) {
-              const result = await executeQueryForStudio(sql, statement);
+              const result = await executeQueryForStudio(sql.exec, statement);
               results.push(result);
             }
 
@@ -510,12 +514,9 @@ interface StudioTransactionRequest {
 
 type StudioRequest = StudioQueryRequest | StudioTransactionRequest;
 
-async function executeQueryForStudio(
-  sql: SqlStorage | ExecFunction,
-  statement: string,
-) {
-  const cursor =
-    typeof sql === "function" ? sql(statement) : sql.exec(statement);
+async function executeQueryForStudio(exec: ExecFunction, statement: string) {
+  const cursor = exec(statement);
+  const rawResult = Array.from(await cursor.raw());
 
   const columnSet = new Set();
   const columnNames = cursor.columnNames.map((colName) => {
@@ -536,7 +537,7 @@ async function executeQueryForStudio(
 
   return {
     headers: columnNames,
-    rows: Array.from(await cursor.raw()).map((r) =>
+    rows: rawResult.map((r) =>
       columnNames.reduce((a, b, idx) => {
         a[b.name] = r[idx];
         return a;
