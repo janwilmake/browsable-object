@@ -49,7 +49,11 @@ export interface BrowsableOptions {
   validator?: QueryValidator;
 }
 
-// Exec function type - can execute SQL queries
+/**
+Exec function type - can execute SQL queries.
+Please note, this interface should allow remote exec function as well
+Such as from https://github.com/janwilmake/remote-sql-cursor
+*/
 export type ExecFunction = (
   sql: string,
   ...params: any[]
@@ -57,8 +61,8 @@ export type ExecFunction = (
   columnNames: string[];
   rowsRead: number;
   rowsWritten: number;
-  raw(): IterableIterator<any[]>;
-  toArray(): any[];
+  raw(): IterableIterator<any[]> | Promise<any[]>;
+  toArray(): any[] | Promise<any[]>;
 };
 
 function checkAuth(
@@ -143,7 +147,7 @@ async function executeQuery(
   if (opts.isRaw) {
     return {
       columns: cursor.columnNames,
-      rows: Array.from(cursor.raw()),
+      rows: Array.from(await cursor.raw()),
       meta: {
         rows_read: cursor.rowsRead,
         rows_written: cursor.rowsWritten,
@@ -204,13 +208,14 @@ async function executeStudioRequest(
   }
 
   if (cmd.type === "query") {
-    return executeQueryForStudio(exec, cmd.statement);
+    return await executeQueryForStudio(exec, cmd.statement);
   } else if (cmd.type === "transaction") {
     // Note: This is a simplified version. For proper transaction support,
     // you might need access to the storage object for transactionSync
     const results = [];
     for (const statement of cmd.statements) {
-      results.push(executeQueryForStudio(exec, statement));
+      const result = await executeQueryForStudio(exec, statement);
+      results.push(result);
     }
     return results;
   }
@@ -218,10 +223,6 @@ async function executeStudioRequest(
 
 /**
  * Main browsable request handler function
- * @param request - The incoming request
- * @param exec - Function to execute SQL queries
- * @param options - Browsable options
- * @returns Response or null if not a browsable route
  */
 export async function browsableRequest(
   request: Request,
@@ -447,16 +448,18 @@ export function Browsable(options?: BrowsableOptions) {
         }
 
         if (cmd.type === "query") {
-          return executeQueryForStudio(sql, cmd.statement);
+          return await executeQueryForStudio(sql, cmd.statement);
         } else if (cmd.type === "transaction") {
-          return storage.transactionSync(() => {
+          const result = await storage.transaction(async () => {
             const results = [];
             for (const statement of cmd.statements) {
-              results.push(executeQueryForStudio(sql, statement));
+              const result = await executeQueryForStudio(sql, statement);
+              results.push(result);
             }
 
             return results;
           });
+          return result;
         }
       }
     };
@@ -507,7 +510,7 @@ interface StudioTransactionRequest {
 
 type StudioRequest = StudioQueryRequest | StudioTransactionRequest;
 
-function executeQueryForStudio(
+async function executeQueryForStudio(
   sql: SqlStorage | ExecFunction,
   statement: string,
 ) {
@@ -533,7 +536,7 @@ function executeQueryForStudio(
 
   return {
     headers: columnNames,
-    rows: Array.from(cursor.raw()).map((r) =>
+    rows: Array.from(await cursor.raw()).map((r) =>
       columnNames.reduce((a, b, idx) => {
         a[b.name] = r[idx];
         return a;

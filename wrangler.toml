@@ -1,6 +1,6 @@
-name = "browsable-readonly-test"
+name = "browsable-object-example"
 main = "example.ts"
-compatibility_date = "2025-06-16"
+compatibility_date = "2025-07-08"
 route.custom_domain = true
 route.pattern = "browsable.itscooldo.com"
 # Use the local preview to test this
@@ -9,10 +9,10 @@ port = 3000
 
 # Define the durable object
 [[durable_objects.bindings]]
-name = "READ_ONLY_TEST"
-class_name = "ReadOnlyTestObject"
+name = "MyDO"
+class_name = "MyDO"
 
 # Set up a migration to enable the SQLite database
 [[migrations]]
 tag = "v1"
-new_sqlite_classes = ["ReadOnlyTestObject"]
+new_sqlite_classes = ["MyDO"]

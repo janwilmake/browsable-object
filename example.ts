@@ -7,7 +7,7 @@ import { Browsable, QueryValidator } from "./browsable-object";
   // disableStudio:true,
   // validator: createReadOnlyValidator(),
 })
-export class ReadOnlyTestObject extends DurableObject {
+export class MyDO extends DurableObject {
   private sql: SqlStorage;
   constructor(state: DurableObjectState, env: Env) {
     super(state, env);
