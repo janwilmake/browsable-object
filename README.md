@@ -46,3 +46,8 @@ npm install browsable-object
 ```
 
 Check https://github.com/outerbase/browsable-durable-object for other usage patterns
+
+## TODO
+
+- Confirm `remote-sql-cursor` 'exec' function works with the `browsableRequest` middleware.
+- If so, I can use this in DORM to 1) have easy pattern to make aggregate readonly and 2) make it possible to easily access studio for client with mirror.
