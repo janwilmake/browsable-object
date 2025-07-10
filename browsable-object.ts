@@ -518,14 +518,37 @@ async function executeQueryForStudio(exec: ExecFunction, statement: string) {
   const cursor = exec(statement);
   const rawResult = Array.from(await cursor.raw());
 
+  // Get the actual number of columns from the data
+  const actualColumnCount = rawResult.length > 0 ? rawResult[0].length : 0;
+
+  // If we have more column names than actual data columns, we need to deduplicate
+  let effectiveColumnNames = cursor.columnNames;
+
+  if (cursor.columnNames.length > actualColumnCount) {
+    // Remove duplicate column names, keeping only the first occurrence
+    const seen = new Set();
+    const uniqueColumns = [];
+
+    for (const colName of cursor.columnNames) {
+      if (!seen.has(colName)) {
+        seen.add(colName);
+        uniqueColumns.push(colName);
+      }
+    }
+
+    effectiveColumnNames = uniqueColumns;
+  }
+
   const columnSet = new Set();
-  const columnNames = cursor.columnNames.map((colName) => {
+  const columnNames = effectiveColumnNames.map((colName) => {
     let renameColName = colName;
 
     for (let i = 0; i < 20; i++) {
       if (!columnSet.has(renameColName)) break;
       renameColName = "__" + colName + "_" + i;
     }
+
+    columnSet.add(renameColName);
 
     return {
       name: renameColName,

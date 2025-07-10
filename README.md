@@ -1,5 +1,9 @@
 # browsable-object
 
+> [!WARNING]
+>
+> [queryable-object](https://github.com/janwilmake/queryable-object) is a simplified alternative that is more secure and also provides a nice remote `exec` interface!
+
 A decorator, inheritance mechanism, and handler for making Cloudflare Durable Objects browsable and queryable via SQL. Forked from [@outerbase/browsable-durable-object](https://github.com/outerbase/browsable-durable-object) to change functionality. See the original for usage patterns.
 
 Added features compared to original:

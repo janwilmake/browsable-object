@@ -1,9 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
-import { Browsable, QueryValidator } from "./browsable-object";
+import {
+  Browsable,
+  browsableRequest,
+  QueryValidator,
+} from "./browsable-object";
+import { exec, getExec } from "./remote-sql-cursor";
 
 @Browsable({
   basicAuth: { username: "admin", password: "test" },
-  // dangerouslyDisableAuth: true,
+  dangerouslyDisableAuth: true,
   // disableStudio:true,
   // validator: createReadOnlyValidator(),
 })
@@ -29,7 +34,8 @@ export class MyDO extends DurableObject {
     }
   }
 }
-type Env = { MyDO: DurableObjectNamespace };
+type Env = { MyDO: DurableObjectNamespace<MyDO> };
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -39,9 +45,26 @@ export default {
         `Usage: /{id}/studio for the studio, raw queries at /{id}/query/raw`,
       );
     }
+
     // Forward the request to the durable object
     const stub = env.MyDO.get(env.MyDO.idFromName(firstSegment));
-    return stub.fetch(request);
+
+    if (firstSegment === "test") {
+      const exec = getExec(
+        env.MyDO,
+        firstSegment,
+        request.headers.get("authorization"),
+      );
+      const array = await exec("SELECT * FROM test_data").toArray();
+      return new Response(JSON.stringify(array));
+    }
+
+    return browsableRequest(
+      request,
+      getExec(env.MyDO, firstSegment, request.headers.get("authorization")),
+      { dangerouslyDisableAuth: true },
+    );
+    //return stub.fetch(request);
   },
 };
 
